@@ -33,32 +33,447 @@ Tags: [android, services, broadcast-receivers, content-providers, lifecycle, jav
 ### 1. Фоновый шагомер (Step Tracker): Разработайте сервис переднего плана, слушающий аппаратный датчик TYPE_STEP_COUNTER и обновляющий число шагов в уведомлении раз в 10 секунд.
 <img width="1280" height="676" alt="image" src="https://github.com/user-attachments/assets/fb22f383-15ba-4e84-ab80-89a8ada8fe73" />
 
+# КОД к заданию:
+
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.hardware.*;
+import android.os.IBinder;
+
+public class StepCounterService extends Service implements SensorEventListener {
+    private SensorManager sm;
+    private long last = 0;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        startForeground(1, Notif.make(this, "steps", "Step Tracker", "Запущен"));
+        sm = (SensorManager) getSystemService(SENSOR_SERVICE);
+        sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER),
+                SensorManager.SENSOR_DELAY_UI);
+    }
+
+    @Override public void onSensorChanged(SensorEvent e) {
+        if (System.currentTimeMillis() - last >= 10_000) { // не чаще раза в 10 секунд
+            last = System.currentTimeMillis();
+            startForeground(1, Notif.make(this, "steps", "Step Tracker",
+                    "Шагов: " + (int) e.values[0]));
+        }
+    }
+    @Override public void onAccuracyChanged(Sensor s, int a) { }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
+---
 ### 2. Аудиоплеер с управлением из шторки: Реализуйте привязанный сервис с кнопками «Play», «Pause», «Next» в интерактивном уведомлении (NotificationCompat.Action).
 <img width="1280" height="676" alt="image" src="https://github.com/user-attachments/assets/b0863dd8-0779-4963-8efe-95acb5c3284c" />
+
+# КОД к заданию:
+
+```java
+package com.example.myfirstapp;
+
+import android.app.*;
+import android.content.Intent;
+import android.media.MediaPlayer;
+import android.os.IBinder;
+import android.support.v4.app.NotificationCompat;
+
+public class MediaPlaybackService extends Service {
+    public static final String PLAY = "play", PAUSE = "pause", NEXT = "next";
+    private MediaPlayer player;
+    private int[] tracks = { R.raw.track1, R.raw.track2, R.raw.track3 };
+    private int idx = 0;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        player = MediaPlayer.create(this, tracks[idx]);
+        startForeground(2, build());
+    }
+
+    @Override public int onStartCommand(Intent i, int f, int s) {
+        if (i != null && i.getAction() != null) {
+            switch (i.getAction()) {
+                case PLAY:  player.start(); break;
+                case PAUSE: player.pause(); break;
+                case NEXT:
+                    boolean was = player.isPlaying();
+                    player.release();
+                    idx = (idx + 1) % tracks.length;
+                    player = MediaPlayer.create(this, tracks[idx]);
+                    if (was) player.start();
+                    break;
+            }
+        }
+        startForeground(2, build());
+        return START_STICKY;
+    }
+
+    private Notification build() {
+        PendingIntent p = PendingIntent.getService(this, 1,
+                new Intent(this, MediaPlaybackService.class), PendingIntent.FLAG_UPDATE_CURRENT);
+        return new NotificationCompat.Builder(this, "player")
+                .setContentTitle("Плеер").setSmallIcon(android.R.drawable.ic_media_play)
+                .addAction(android.R.drawable.ic_media_play, "Воспроизвести", p)
+                .addAction(android.R.drawable.ic_media_pause, "Пауза", p)
+                .addAction(android.R.drawable.ic_media_next, "Далее", p)
+                .build();
+    }
+    @Override public void onDestroy() { player.release(); super.onDestroy(); }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
 
 ### 3. Сервис пакетной выгрузки фотографий: Напишите службу скачивания архива из 100 файлов с флагом START_REDELIVER_INTENT и отображением прогресс-бара в процентах.
 <img width="1280" height="676" alt="image" src="https://github.com/user-attachments/assets/5235a2e3-9057-4bc5-ad54-3e51f22c0ac1" />
 
+# КОД к заданию:
+
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.IBinder;
+
+import java.io.*;
+import java.net.URL;
+
+public class DownloadService extends Service {
+    @Override public int onStartCommand(Intent i, int f, int s) {
+        startForeground(3, Notif.make(this, "dl", "Выгрузка", "Старт"));
+        new Thread(() -> {
+            try {
+                for (int n = 1; n <= 100; n++) {
+                    InputStream in = new URL("https://example.com/file" + n).openStream();
+                    OutputStream out = new FileOutputStream(
+                            new File(getExternalFilesDir(null), "file" + n + ".dat"));
+                    byte[] buf = new byte[8192];
+                    for (int r; (r = in.read(buf)) > 0; ) out.write(buf, 0, r);
+                    out.close(); in.close();
+                    startForeground(3, Notif.make(this, "dl", "Выгрузка", n + " %"));
+                }
+            } catch (IOException e) { e.printStackTrace(); }
+        }).start();
+        return START_REDELIVER_INTENT; // сервис перезапустится с тем же intent
+    }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
+
 ### 4. Фоновый веб-сокет клиент: Создайте сервис с непрерывным WebSocket-соединением для получения биржевых котировок, автоматически восстанавливающий связь при падении.
 <img width="1280" height="676" alt="image" src="https://github.com/user-attachments/assets/4933ff51-5148-461f-96e9-9ee1c68a68bb" />
 
+# КОД к заданию:
+
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+
+import okhttp3.*;
+
+public class WebSocketService extends Service {
+    private OkHttpClient client = new OkHttpClient();
+    private WebSocket ws;
+    private Handler h = new Handler(Looper.getMainLooper());
+    private int attempts = 0;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        startForeground(4, Notif.make(this, "ws", "Котировки", "Подключение..."));
+        connect();
+    }
+
+    private void connect() {
+        Request req = new Request.Builder().url("wss://ws.postman-echo.com/raw").build();
+        ws = client.newWebSocket(req, new WebSocketListener() {
+            @Override public void onOpen(WebSocket w, Response r) {
+                attempts = 0;
+                w.send("subscribe:quotes");
+            }
+            @Override public void onMessage(WebSocket w, String text) { /* раздача котировок */ }
+            @Override public void onFailure(WebSocket w, Throwable t, Response r) { reconnect(); }
+            @Override public void onClosed(WebSocket w, int code, String reason) { reconnect(); }
+        });
+    }
+
+    private void reconnect() {
+        long delay = Math.min((long) Math.pow(2, attempts++) * 1000, 60_000); // 1с, 2с, 4с...
+        h.postDelayed(this::connect, delay);
+    }
+
+    @Override public void onDestroy() { ws.close(1000, "stop"); super.onDestroy(); }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
+
 ### 5. Сервис геозоны (Geofencing Monitor): Разработайте сервис, непрерывно запрашивающий GPS-координаты и подающий звуковой сигнал при выходе из радиуса 500 метров от склада.
-<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/830f2caf-c178-4594-863b-1cd36e5b1eaa" />
+<img width="2560" height="1360" alt="image" src="https://github.com/user-attachments/assets/6d010ffe-72c0-456f-afc7-873621994cc6" />
+
+# КОД к заданию:
+
+---
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.location.*;
+import android.media.RingtoneManager;
+import android.os.Bundle;
+import android.os.IBinder;
+
+public class GeofencingService extends Service implements LocationListener {
+    private static final double LAT = 54.1860, LON = 37.6150; // координаты склада
+    private static final float RADIUS = 500;
+    private android.media.Ringtone alarm;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        startForeground(5, Notif.make(this, "geo", "Геозона", "Мониторинг активен"));
+        alarm = RingtoneManager.getRingtone(this,
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM));
+        try {
+            ((LocationManager) getSystemService(LOCATION_SERVICE))
+                    .requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, this);
+        } catch (SecurityException ignored) { }
+    }
+
+    @Override public void onLocationChanged(Location loc) {
+        float[] d = new float[1];
+        Location.distanceBetween(loc.getLatitude(), loc.getLongitude(), LAT, LON, d);
+        if (d[0] < RADIUS && !alarm.isPlaying()) {
+            alarm.play(); // радиус меньше 500 метров — звуковой сигнал
+            startForeground(5, Notif.make(this, "geo", "Геозона", "Внимание: зона склада!"));
+        }
+    }
+    @Override public void onStatusChanged(String p, int s, Bundle b) { }
+    @Override public void onProviderEnabled(String p) { }
+    @Override public void onProviderDisabled(String p) { }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
 
 ### 6. Служба сжатия видеофайлов: Напишите сервис с очередью задач на перекодирование видеороликов с использованием фонового пула Executors.newSingleThreadExecutor().
 <img width="1280" height="676" alt="image" src="https://github.com/user-attachments/assets/24917352-2548-4d59-8b3a-51448aa4484d" />
 
+# КОД к заданию:
+
+---
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.IBinder;
+
+import java.io.*;
+import java.util.concurrent.*;
+
+public class TranscodeService extends Service {
+    private ExecutorService executor;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        executor = Executors.newSingleThreadExecutor(); // один фоновый поток
+    }
+
+    @Override public int onStartCommand(Intent i, int f, int s) {
+        File[] videos = new File(getExternalFilesDir(null), "to_transcode").listFiles();
+        if (videos != null)
+            for (File v : videos)
+                executor.submit(() -> {
+                    try { transcode(v); } catch (IOException e) { e.printStackTrace(); }
+                });
+        return START_NOT_STICKY;
+    }
+
+    // Здесь условное «перекодирование» — копирование потока; в реальном проекте
+    // подставьте MediaExtractor/MediaCodec или библиотеку по заданию
+    private void transcode(File src) throws IOException {
+        InputStream in = new FileInputStream(src);
+        OutputStream out = new FileOutputStream(new File(src.getParent(), "out_" + src.getName()));
+        byte[] buf = new byte[8192];
+        for (int r; (r = in.read(buf)) > 0; ) out.write(buf, 0, r);
+        in.close(); out.close();
+    }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+
+```
+
 ### 7.IPC через Messenger: Создайте службу, взаимодействующую с клиентами из другого процесса с помощью объектов Messenger и сообщений Message.
-<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/9527d783-2d2c-479c-a383-966e6b99af41" />
+<img width="2560" height="1360" alt="image" src="https://github.com/user-attachments/assets/2ed844ae-1faf-4e4c-8481-5d72fd014053" />
+
+# КОД к заданию:
+
+---
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.*;
+
+public class MessengerService extends Service {
+    static final int MSG_SAY = 1;
+
+    private class Incoming extends Handler {
+        @Override public void handleMessage(Message msg) {
+            if (msg.what == MSG_SAY) {
+                String text = msg.getData().getString("text", "");
+                Message reply = Message.obtain(null, MSG_SAY);
+                Bundle b = new Bundle();
+                b.putString("text", "Ответ: " + text);
+                reply.setData(b);
+                try { msg.replyTo.send(reply); } catch (RemoteException ignored) { }
+            }
+        }
+    }
+
+    private final Messenger messenger = new Messenger(new Incoming());
+    @Override public IBinder onBind(Intent intent) { return messenger.getBinder(); }
+}
+
+```
 
 ### 8. Служба очистки кэша по расписанию: Реализуйте сервис, подсчитывающий размер каталога кэша и удаляющий файлы старше 7 дней при старте.
-<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/4b243a62-46c1-47ec-893d-5108e564bb03" />
+<img width="693" height="371" alt="image" src="https://github.com/user-attachments/assets/4e15beb1-a2a9-44d3-9ae1-7e30a9cc63c2" />
+
+# КОД к заданию:
+
+---
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.IBinder;
+
+import java.io.File;
+import java.util.concurrent.*;
+
+public class CacheCleanupService extends Service {
+    private ScheduledExecutorService scheduler;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(this::cleanOldCache, 0, 1, TimeUnit.DAYS);
+    }
+
+    private void cleanOldCache() {
+        File[] files = getCacheDir().listFiles();
+        long week = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000;
+        if (files != null)
+            for (File f : files)
+                if (f.lastModified() < week) f.delete(); // старше 7 дней — удалить
+    }
+
+    @Override public void onDestroy() { scheduler.shutdown(); super.onDestroy(); }
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+
+```
 
 ### 9.Служба мониторинга буфера обмена: Разработайте сервис, отслеживающий появление в буфере обмена телефонных номеров и предлагающий быстрый звонок.
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/a54a6316-f488-461b-8379-ff26c105e434" />
 
+# КОД к заданию:
+
+---
+```java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.ClipboardManager;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.IBinder;
+
+import java.util.regex.*;
+
+public class ClipboardService extends Service
+        implements ClipboardManager.OnPrimaryClipChangedListener {
+    private ClipboardManager cm;
+    private static final Pattern PHONE = Pattern.compile("^[+]?[0-9()\\-\\s]{10,15}$");
+
+    @Override public void onCreate() {
+        super.onCreate();
+        cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cm.addPrimaryClipChangedListener(this);
+    }
+
+    @Override public void onPrimaryClipChanged() {
+        if (cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+            String text = String.valueOf(cm.getPrimaryClip().getItemAt(0).getText()).trim();
+            if (PHONE.matcher(text).matches())
+                startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + text))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); // обеспечиваем закрытие звонка
+        }
+    }
+
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
+
 ### 10. Ограничитель времени работы сервиса: Реализуйте авто-остановку Foreground-службы через 30 минут работы с помощью таймера и метода stopForeground(true).
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/e7ed82f8-d250-4d0c-a442-d03d959ccc37" />
+
+# КОД к заданию:
+
+---
+```java
+// AutoStopService.java
+package com.example.myfirstapp;
+
+import android.app.Service;
+import android.content.Intent;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+
+public class AutoStopService extends Service {
+    private static final long LIFETIME_MS = 30 * 60 * 1000; // 30 минут
+    private Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable stopper = this::stopSelfSafely;
+
+    private void stopSelfSafely() {
+        stopForeground(true);  // снимаем уведомление foreground
+        stopSelf();            // полностью останавливаем сервис
+    }
+
+    @Override public void onCreate() {
+        super.onCreate();
+        startForeground(10, Notif.make(this, "autostop", "Сервис", "Работает"));
+        handler.postDelayed(stopper, LIFETIME_MS); // авто-остановка через 30 минут
+    }
+
+    @Override public void onDestroy() {
+        handler.removeCallbacks(stopper);
+        super.onDestroy();
+    }
+
+    @Override public IBinder onBind(Intent i) { return null; }
+}
+
+```
 
 # Блок 2: Системные события и широковещательные приемники (Broadcasts)
 ### 11.Детектор подключения зарядного устройства: Зарегистрируйте приемник событий ACTION_POWER_CONNECTED и ACTION_POWER_DISCONNECTED с выводом текущего типа зарядки (быстрая, беспроводная, USB).
